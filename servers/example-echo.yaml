@@ -1,0 +1,22 @@
+id: echo
+name: Echo MCP
+description: Example MCP manifest for GitOps onboarding
+targetUrl: http://127.0.0.1:30001
+healthPath: /health
+command: ghcr.io/your-org/echo-mcp:latest
+commandArgs:
+  - --transport
+  - streamable-http
+commandEnv:
+  LOG_LEVEL: info
+commandEnvSecrets:
+  UPSTREAM_API_KEY: ssm:///prod/mcp/echo/api_key
+authType: bearer
+authInstructions: Use your provider access token. Add it as Authorization header in the form "Bearer <token>".
+docsUrl: https://docs.vendor.com/mcp/echo
+signupUrl: https://vendor.com/signup
+requiredHeaders:
+  - Authorization
+forwardHeaders:
+  - authorization
+  - x-tenant-id

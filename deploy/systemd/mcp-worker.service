@@ -1,0 +1,26 @@
+[Unit]
+Description=MCP Provisioning Worker
+After=network.target docker.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/mcp-servers
+Environment=NODE_ENV=production
+Environment=DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/mcp_hosting
+Environment=REDIS_URL=redis://127.0.0.1:6379
+Environment=PROVISIONING_QUEUE_NAME=provisioning
+Environment=DOCKER_SOCKET=/var/run/docker.sock
+Environment=DOCKER_NETWORK=host
+Environment=DOCKER_IMAGE_PULL=false
+Environment=AWS_REGION=us-east-1
+Environment=LOG_LEVEL=info
+Environment=OTEL_ENABLED=false
+Environment=OTEL_EXPORTER_OTLP_ENDPOINT=
+EnvironmentFile=-/etc/mcp-platform.env
+ExecStart=/usr/bin/node /opt/mcp-servers/src/worker.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

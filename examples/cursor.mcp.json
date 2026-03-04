@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "echoHosted": {
+      "url": "https://mcp.your-real-domain.com/mcp/echo",
+      "headers": {
+        "X-API-Key": "<PLATFORM_KEY>",
+        "Authorization": "Bearer <UPSTREAM_USER_TOKEN>",
+        "x-tenant-id": "<TENANT_ID>"
+      }
+    }
+  }
+}

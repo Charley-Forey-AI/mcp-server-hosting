@@ -1,0 +1,99 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mcp-postgres
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-mcp_hosting}"
+      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - mcp_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: mcp-redis
+    restart: unless-stopped
+    networks:
+      - mcp_net
+
+  mcp-platform:
+    build: .
+    container_name: mcp-platform
+    depends_on:
+      - postgres
+    environment:
+      PORT: "8080"
+      HOST: "0.0.0.0"
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-https://mcp.your-real-domain.com}"
+      PLATFORM_AUTH_DESCRIPTION: "${PLATFORM_AUTH_DESCRIPTION:-Use your platform API key or JWT to access hosted MCPs.}"
+      PLATFORM_SIGNUP_URL: "${PLATFORM_SIGNUP_URL:-}"
+      DATABASE_URL: "${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/mcp_hosting}"
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
+      PROVISIONING_QUEUE_NAME: "${PROVISIONING_QUEUE_NAME:-provisioning}"
+      HEALTH_INTERVAL_MS: "15000"
+      PORT_MIN: "30001"
+      PORT_MAX: "30200"
+      REQUESTS_PER_MINUTE_PER_SUB: "${REQUESTS_PER_MINUTE_PER_SUB:-600}"
+      REQUESTS_PER_DAY_PER_SUB: "${REQUESTS_PER_DAY_PER_SUB:-50000}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      OTEL_ENABLED: "${OTEL_ENABLED:-false}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+      PLATFORM_API_KEYS: "${PLATFORM_API_KEYS:-}"
+      JWT_ISSUER: "${JWT_ISSUER:-}"
+      JWT_AUDIENCE: "${JWT_AUDIENCE:-}"
+      JWT_JWKS_URI: "${JWT_JWKS_URI:-}"
+      JWT_HS256_SECRET: "${JWT_HS256_SECRET:-}"
+      JWT_ROLES_CLAIM: "${JWT_ROLES_CLAIM:-roles}"
+    restart: unless-stopped
+    networks:
+      - mcp_net
+
+  mcp-worker:
+    build: .
+    container_name: mcp-worker
+    command: ["node", "src/worker.js"]
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: "${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/mcp_hosting}"
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
+      PROVISIONING_QUEUE_NAME: "${PROVISIONING_QUEUE_NAME:-provisioning}"
+      DOCKER_SOCKET: "${DOCKER_SOCKET:-/var/run/docker.sock}"
+      DOCKER_NETWORK: "${DOCKER_NETWORK:-host}"
+      DOCKER_IMAGE_PULL: "${DOCKER_IMAGE_PULL:-false}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      OTEL_ENABLED: "${OTEL_ENABLED:-false}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+      AWS_REGION: "${AWS_REGION:-us-east-1}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    networks:
+      - mcp_net
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: mcp-nginx
+    depends_on:
+      - mcp-platform
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./deploy/nginx/certs:/etc/nginx/certs:ro
+    restart: unless-stopped
+    networks:
+      - mcp_net
+
+networks:
+  mcp_net:
+    driver: bridge
+
+volumes:
+  pgdata:

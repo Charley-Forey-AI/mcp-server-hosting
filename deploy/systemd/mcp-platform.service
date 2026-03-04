@@ -1,0 +1,31 @@
+[Unit]
+Description=MCP Hosting Platform
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/mcp-servers
+Environment=NODE_ENV=production
+Environment=PORT=8080
+Environment=HOST=127.0.0.1
+Environment=PUBLIC_BASE_URL=https://mcp.your-real-domain.com
+Environment=PLATFORM_AUTH_DESCRIPTION=Use your platform API key or JWT to access hosted MCPs.
+Environment=PLATFORM_SIGNUP_URL=
+Environment=DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/mcp_hosting
+Environment=JWT_ROLES_CLAIM=roles
+Environment=PORT_MIN=30001
+Environment=PORT_MAX=30200
+Environment=HEALTH_INTERVAL_MS=15000
+Environment=REQUESTS_PER_MINUTE_PER_SUB=600
+Environment=REQUESTS_PER_DAY_PER_SUB=50000
+Environment=LOG_LEVEL=info
+Environment=OTEL_ENABLED=false
+Environment=OTEL_EXPORTER_OTLP_ENDPOINT=
+EnvironmentFile=-/etc/mcp-platform.env
+ExecStart=/usr/bin/node /opt/mcp-servers/src/index.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+{
+  "name": "echo",
+  "url": "https://mcp.your-real-domain.com/mcp/echo",
+  "headers": {
+    "X-API-Key": "<PLATFORM_KEY>",
+    "Authorization": "Bearer <UPSTREAM_USER_TOKEN>"
+  }
+}
