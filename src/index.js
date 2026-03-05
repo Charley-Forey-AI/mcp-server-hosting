@@ -28,7 +28,18 @@ const {
   getTopServersAnalytics,
   cleanupRequestEventsOlderThan,
 } = require("./db");
-const { authenticate, requireRole, jwtEnabled } = require("./auth");
+const {
+  authenticate,
+  requireRole,
+  jwtEnabled,
+  browserLoginEnabled,
+  verifyBrowserCredentials,
+  createBrowserSession,
+  clearBrowserSession,
+  getBrowserSession,
+  setBrowserSessionCookie,
+  clearBrowserSessionCookie,
+} = require("./auth");
 const { enqueueProvisionJob } = require("./queue");
 const { parseGitHubUrl, deriveServerId } = require("./importPipeline");
 const { initTelemetry } = require("./telemetry");
@@ -65,6 +76,7 @@ const importRateLimiter = new Map();
 const docker = new Docker({ socketPath: process.env.DOCKER_SOCKET || "/var/run/docker.sock" });
 initTelemetry();
 app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: false }));
 app.use(
   pinoHttp({
     logger,
@@ -460,6 +472,59 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function getLoginRedirectTarget(req) {
+  const candidate = String(req.body?.next || req.query?.next || "/dashboard");
+  if (!candidate.startsWith("/") || candidate.startsWith("//")) return "/dashboard";
+  return candidate;
+}
+
+function renderLoginPage({ nextPath = "/dashboard", error = "", info = "" } = {}) {
+  const safeNextPath = escapeHtml(nextPath);
+  const errorBanner = error ? `<p style="color:#b00020; margin-bottom: 12px;">${escapeHtml(error)}</p>` : "";
+  const infoBanner = info ? `<p style="color:#1a5fb4; margin-bottom: 12px;">${escapeHtml(info)}</p>` : "";
+  const loginEnabled = browserLoginEnabled();
+  return `<!doctype html>
+  <html>
+    <head>
+      <meta charset="utf-8"/>
+      <title>MCP Dashboard Login</title>
+      <meta name="viewport" content="width=device-width,initial-scale=1"/>
+      <style>
+        body { font-family: Arial, sans-serif; background: #f5f6f8; margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .card { width: 100%; max-width: 420px; background: #fff; border-radius: 10px; padding: 24px; box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08); }
+        h1 { margin-top: 0; }
+        label { display: block; margin-bottom: 12px; font-size: 14px; }
+        input { box-sizing: border-box; width: 100%; margin-top: 6px; padding: 10px 12px; border: 1px solid #ccd1d7; border-radius: 8px; }
+        button { width: 100%; margin-top: 8px; padding: 10px 14px; border: 0; border-radius: 8px; background: #1f6feb; color: #fff; font-weight: 600; cursor: pointer; }
+        p.subtle { color: #57606a; font-size: 13px; margin-top: 12px; }
+        code { background: #f6f8fa; padding: 2px 4px; border-radius: 4px; }
+      </style>
+    </head>
+    <body>
+      <main class="card">
+        <h1>Sign in</h1>
+        ${errorBanner}
+        ${infoBanner}
+        ${
+          loginEnabled
+            ? `<form method="POST" action="/login">
+          <input type="hidden" name="next" value="${safeNextPath}"/>
+          <label>Email
+            <input type="email" name="email" autocomplete="username" required />
+          </label>
+          <label>Password
+            <input type="password" name="password" autocomplete="current-password" required />
+          </label>
+          <button type="submit">Sign in</button>
+        </form>
+        <p class="subtle">If you prefer API auth, you can still use <code>X-API-Key</code> or bearer token headers.</p>`
+            : `<p>Browser login is not enabled. Configure <code>WEB_ADMIN_EMAIL</code> and <code>WEB_ADMIN_PASSWORD</code>, then restart the service.</p>`
+        }
+      </main>
+    </body>
+  </html>`;
+}
+
 const MASK_TOKEN = "__MCP_MASKED__";
 const SYSTEM_MANAGED_ENV_KEYS = new Set([
   "HOST",
@@ -503,7 +568,40 @@ function parseToolsCountFromMessage(message) {
 }
 
 app.get("/", (_req, res) => {
-  res.type("text/plain").send("MCP Hosting Platform is running");
+  return res.redirect("/dashboard");
+});
+
+app.get("/login", async (req, res) => {
+  const nextPath = getLoginRedirectTarget(req);
+  const existingSession = getBrowserSession(req);
+  if (existingSession) return res.redirect(nextPath);
+  return res.type("html").send(renderLoginPage({ nextPath }));
+});
+
+app.post("/login", async (req, res) => {
+  const nextPath = getLoginRedirectTarget(req);
+  if (!browserLoginEnabled()) {
+    return res.status(503).type("html").send(renderLoginPage({ nextPath, error: "Browser login is not configured." }));
+  }
+  const email = String(req.body?.email || "");
+  const password = String(req.body?.password || "");
+  if (!verifyBrowserCredentials(email, password)) {
+    authFailuresTotal.labels("web_login_failed").inc();
+    return res.status(401).type("html").send(renderLoginPage({ nextPath, error: "Invalid email or password." }));
+  }
+  const session = createBrowserSession({
+    sub: String(email || "").trim().toLowerCase(),
+    roles: ["admin", "publisher", "viewer"],
+  });
+  setBrowserSessionCookie(res, session.token, req);
+  return res.redirect(nextPath);
+});
+
+app.post("/logout", (req, res) => {
+  const session = getBrowserSession(req);
+  if (session?.token) clearBrowserSession(session.token);
+  clearBrowserSessionCookie(res);
+  return res.redirect("/login");
 });
 
 app.get("/health", async (_req, res) => {
@@ -1008,7 +1106,12 @@ function renderDashboardPage({ title, active, canManage, req, content, scriptDat
             <p class="subtle">Public base URL: <code>${escapeHtml(PUBLIC_BASE_URL)}</code></p>
             <p class="subtle">Signed in as <code>${escapeHtml(req.auth.sub)}</code> (${escapeHtml(roles.join(", "))}) via ${escapeHtml(req.auth.authType)}</p>
           </div>
-          <a class="button-link" href="/metrics">Advanced metrics</a>
+          <div>
+            <a class="button-link" href="/metrics">Advanced metrics</a>
+            <form method="POST" action="/logout" style="display:inline;">
+              <button class="button-link" type="submit">Sign out</button>
+            </form>
+          </div>
         </header>
         <nav class="dashboard-nav">${renderDashboardNav(active, canManage)}</nav>
         ${content}
@@ -1053,8 +1156,10 @@ app.get("/dashboard", authenticate, requireRole("viewer", "publisher", "admin"),
       const toolsPass = String(server.toolsCheckStatus || "").toLowerCase() === "passed";
       const toolsCount = parseToolsCountFromMessage(server.toolsCheckMessage);
       const lastToolsCheck = server.lastToolsCheck ? new Date(server.lastToolsCheck).toISOString() : null;
-      const readinessScore = Number(containerState.running) + Number(healthPass) + Number(toolsPass);
-      const readinessClass = readinessScore === 3 ? "readiness-good" : readinessScore >= 2 ? "readiness-warn" : "readiness-bad";
+      const toolsStatusLabel = toolsPass ? "pass" : String(server.toolsCheckStatus || "unknown");
+      const toolsMetaLabel = toolsPass
+        ? `${toolsCount ?? "unknown"} tools${lastToolsCheck ? ` • ${lastToolsCheck}` : ""}`
+        : `not successful yet${lastToolsCheck ? ` • ${lastToolsCheck}` : ""}`;
       const primaryActionButton =
         status === "healthy" || status === "unknown"
           ? `<button type="button" onclick="runServerAction('stop', '${escapeHtml(server.id)}')">Stop</button>`
@@ -1073,40 +1178,41 @@ app.get("/dashboard", authenticate, requireRole("viewer", "publisher", "admin"),
           </div>
           <div class="server-header-actions">
             <span id="status-badge-${escapeHtml(server.id)}" class="status-badge status-${status}">${escapeHtml(status)}</span>
-            <button type="button" onclick="copySnippet('${escapeHtml(server.id)}')">Copy mcp.json</button>
           </div>
         </div>
         <div class="server-meta">
-          <div class="readiness-row ${readinessClass}">
-            <span><strong>Container</strong>: ${containerState.running ? "ok" : escapeHtml(containerState.statusText)}</span>
-            <span><strong>Health</strong>: ${healthPass ? "pass" : "fail"}</span>
-            <span><strong>Tools</strong>: <span id="tools-status-${escapeHtml(server.id)}">${toolsPass ? "pass" : escapeHtml(String(server.toolsCheckStatus || "unknown"))}</span></span>
-            <span><strong>Last request</strong>: ${escapeHtml(lastRequestByServerId.get(server.id) || "none")}</span>
+          <div class="readiness-row">
+            <span class="meta-pill"><strong>Container</strong>: ${containerState.running ? "ok" : escapeHtml(containerState.statusText)}</span>
+            <span class="meta-pill"><strong>Health</strong>: ${healthPass ? "pass" : "fail"}</span>
+            <span class="meta-pill"><strong>Tools</strong>: <span id="tools-status-${escapeHtml(server.id)}">${escapeHtml(toolsStatusLabel)}</span></span>
+            <span class="meta-pill"><strong>Today</strong>: ${usage.dayCount}</span>
           </div>
-          <div class="meta-row" id="tools-meta-${escapeHtml(server.id)}">Tool discovery: ${
-            toolsPass ? `${toolsCount ?? "unknown"} tools` : "not successful yet"
-          }${lastToolsCheck ? ` • ${escapeHtml(lastToolsCheck)}` : ""}</div>
-          <div class="meta-row">Requests: ${usage.minuteCount} this minute, ${usage.dayCount} today</div>
-          <div class="meta-row">Forwarded headers: <code>${escapeHtml(forwarded)}</code></div>
-          ${required !== "-" ? `<div class="meta-row">Required headers: <code>${escapeHtml(required)}</code></div>` : ""}
+          <div class="meta-row">${usage.minuteCount} this minute • ${usage.dayCount} today</div>
         </div>
         ${
           canManage
             ? `<div class="server-actions">
-          ${primaryActionButton}
-          <button type="button" onclick="restartServer('${escapeHtml(server.id)}')">Restart</button>
-          <button type="button" onclick="testConnection('${escapeHtml(server.id)}')">Test connection</button>
-          ${adminActions}
+          ${primaryActionButton.replace("<button", '<button class="primary-action"')}
+          <button type="button" class="secondary-action" onclick="copySnippet('${escapeHtml(server.id)}')">Copy mcp.json</button>
         </div>`
             : ""
         }
         <details>
-          <summary>Server details</summary>
+          <summary>Details</summary>
+          <div class="meta-row"><strong>Last request</strong>: ${escapeHtml(lastRequestByServerId.get(server.id) || "none")}</div>
+          <div class="meta-row" id="tools-meta-${escapeHtml(server.id)}">Tool discovery: ${escapeHtml(toolsMetaLabel)}</div>
+          <div class="meta-row">Forwarded headers: <code>${escapeHtml(forwarded)}</code></div>
+          ${required !== "-" ? `<div class="meta-row">Required headers: <code>${escapeHtml(required)}</code></div>` : ""}
           <p>${escapeHtml(server.authInstructions || "No specific auth instructions provided.")}</p>
           <pre id="snippet-${escapeHtml(server.id)}">${escapeHtml(snippets[server.id])}</pre>
           ${
             canManage
-              ? `<div class="config-grid">
+              ? `<div class="server-actions">
+            <button type="button" onclick="restartServer('${escapeHtml(server.id)}')">Restart</button>
+            <button type="button" onclick="testConnection('${escapeHtml(server.id)}')">Test connection</button>
+            ${adminActions}
+          </div>
+          <div class="config-grid">
             <div>
               <label>Env JSON
                 <textarea id="env-${escapeHtml(server.id)}" rows="6">${escapeHtml(serverEnvJson[server.id])}</textarea>
@@ -1172,6 +1278,10 @@ app.get("/dashboard", authenticate, requireRole("viewer", "publisher", "admin"),
             <option value="unhealthy">Unhealthy</option>
             <option value="unknown">Unknown</option>
           </select>
+          <div class="view-toggle" role="group" aria-label="Server layout">
+            <button type="button" class="view-toggle-btn active" data-server-view="cards" onclick="setServerView('cards')">Cards</button>
+            <button type="button" class="view-toggle-btn" data-server-view="list" onclick="setServerView('list')">List</button>
+          </div>
         </div>
         <section class="server-grid">
           ${serverCards || "<div class='empty-state'>No servers registered.</div>"}

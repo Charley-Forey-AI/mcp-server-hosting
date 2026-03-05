@@ -11,6 +11,7 @@ const SYSTEM_MANAGED_ENV_KEYS = new Set([
   "MCP_HTTP_PATH",
 ]);
 let importPollTimer = null;
+const SERVER_VIEW_KEY = "dashboard:server-view";
 
 function authHeaders() {
   const apiKey = document.getElementById("apiKey")?.value.trim();
@@ -43,6 +44,25 @@ function applyServerFilters() {
     const statusMatch = !status || cardStatus === status;
     card.style.display = searchMatch && statusMatch ? "" : "none";
   });
+}
+
+function setServerView(mode) {
+  const normalized = mode === "list" ? "list" : "cards";
+  const grid = document.querySelector(".server-grid");
+  if (grid) {
+    grid.classList.toggle("list-view", normalized === "list");
+  }
+  const viewButtons = document.querySelectorAll("[data-server-view]");
+  viewButtons.forEach((button) => {
+    const isActive = String(button.getAttribute("data-server-view") || "") === normalized;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
+  try {
+    window.localStorage.setItem(SERVER_VIEW_KEY, normalized);
+  } catch {
+    // ignore storage write failures
+  }
 }
 
 function filterLogRows(rowSelector, matcher, emptyStateId) {
@@ -346,10 +366,18 @@ window.applyProvisioningLogFilters = applyProvisioningLogFilters;
 window.applyImportLogFilters = applyImportLogFilters;
 window.applyAuditLogFilters = applyAuditLogFilters;
 window.showLogSection = showLogSection;
+window.setServerView = setServerView;
 
 document.addEventListener("DOMContentLoaded", () => {
   if (document.querySelector(".server-card")) {
     applyServerFilters();
+    let preferredView = "cards";
+    try {
+      preferredView = window.localStorage.getItem(SERVER_VIEW_KEY) || "cards";
+    } catch {
+      preferredView = "cards";
+    }
+    setServerView(preferredView);
   }
   if (document.querySelector('[data-log-row="provisioning"]')) {
     applyProvisioningLogFilters();

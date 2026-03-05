@@ -17,11 +17,23 @@ server {
     proxy_pass http://127.0.0.1:8080;
   }
 
+  location /login {
+    proxy_pass http://127.0.0.1:8080;
+  }
+
+  location /logout {
+    proxy_pass http://127.0.0.1:8080;
+  }
+
   location /mcp/index.json {
     proxy_pass http://127.0.0.1:8080;
   }
 
   location /health {
     proxy_pass http://127.0.0.1:8080;
+  }
+
+  location = / {
+    return 302 /dashboard;
   }
 }

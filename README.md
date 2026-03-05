@@ -4,7 +4,7 @@ Multi-tenant MCP hosting control plane for Ubuntu EC2:
 
 - Public URL pattern: `${PUBLIC_BASE_URL}/mcp/{UNIQUE_SOLUTION}`
 - Internal port-per-MCP (default pool `30001-30200`)
-- Platform auth (`X-API-Key` or bearer) and allowlisted header forwarding
+- Platform auth (`X-API-Key` or bearer), plus optional browser email/password login for dashboard access
 - Postgres-backed registry + Admin API + Health checker + Dashboard
 - Redis/BullMQ provisioning queue + Docker-backed runtime worker
 - OIDC/JWT auth + RBAC (`admin`, `publisher`, `viewer`) + audit logs
@@ -46,6 +46,10 @@ flowchart TB
 - `PLATFORM_AUTH_DESCRIPTION` platform auth guidance shown on `/registry`
 - `PLATFORM_SIGNUP_URL` optional link where users get platform access
 - `PLATFORM_API_KEYS` comma-separated keys for platform auth
+- `WEB_ADMIN_EMAIL` optional browser login email for `/dashboard`
+- `WEB_ADMIN_PASSWORD` optional browser login password for `/dashboard`
+- `WEB_SESSION_COOKIE_NAME` session cookie name for browser login (`mcp_session` default)
+- `WEB_SESSION_TTL_MS` browser session lifetime in milliseconds (12h default)
 - `JWT_ISSUER` expected JWT issuer
 - `JWT_AUDIENCE` expected JWT audience
 - `JWT_JWKS_URI` OIDC JWKS endpoint (for RS256/ES256 validation)
@@ -82,6 +86,7 @@ flowchart TB
 - `GET /mcp/:serverId/meta.json` public metadata (auth docs + snippet) for one MCP
 - `GET /registry` public HTML registry with auth requirements and snippets
 - `GET /dashboard` hosted MCP list + copyable mcp.json snippets
+- `GET /login` browser sign-in page for dashboard session auth
 - `GET /api/servers` authenticated server list
 - `GET /api/auth/whoami` inspect resolved subject/roles for current token
 - `GET /api/audit-logs` recent admin audit events (`admin` role)
@@ -232,6 +237,16 @@ JWT_ROLES_CLAIM=roles
 ```
 
 For local testing only, you can still use `PLATFORM_API_KEYS` fallback.
+
+Browser login (optional) can be enabled with:
+
+```env
+WEB_ADMIN_EMAIL=charles_forey@trimble.com
+WEB_ADMIN_PASSWORD=replace-me
+```
+
+When configured, browser visits to `/dashboard*` redirect to `/login` and receive an HttpOnly session cookie after sign-in.
+Set Nginx to proxy both `/dashboard` and `/login` (plus `/logout`) to the platform service, and redirect `/` to `/dashboard`.
 
 ## GitOps Onboarding
 

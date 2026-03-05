@@ -14,6 +14,10 @@
   --error-bg: #fff0f0;
   --error-border: #ffc7c7;
   --error-text: #8f1d1d;
+  --card-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  --card-accent-healthy: #16a34a;
+  --card-accent-unhealthy: #dc2626;
+  --card-accent-unknown: #6b7280;
 }
 
 * {
@@ -168,26 +172,43 @@ textarea {
 .server-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 12px;
+  gap: 14px;
   margin-top: 12px;
 }
 
 .server-card {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-left: 4px solid var(--card-accent-unknown);
+  border-radius: 12px;
+  padding: 14px;
   background: var(--surface);
+  box-shadow: var(--card-shadow);
+}
+
+.server-card[data-status="healthy"] {
+  border-left-color: var(--card-accent-healthy);
+}
+
+.server-card[data-status="unhealthy"] {
+  border-left-color: var(--card-accent-unhealthy);
 }
 
 .server-card-header {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
   align-items: flex-start;
 }
 
+.server-card-header h3 {
+  font-size: 18px;
+  font-weight: 700;
+}
+
 .server-path {
-  margin-top: 4px;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .server-header-actions {
@@ -198,45 +219,45 @@ textarea {
 
 .server-meta {
   display: grid;
-  gap: 8px;
-  margin: 10px 0;
+  gap: 6px;
+  margin: 12px 0;
 }
 
 .meta-row {
-  font-size: 14px;
+  font-size: 13px;
+  color: var(--muted);
 }
 
 .readiness-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
-  padding: 8px;
-  border-radius: 8px;
+}
+
+.meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #f1f5f9;
   border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: #0f172a;
 }
 
-.readiness-good {
-  background: var(--success-bg);
-  border-color: var(--success-border);
-}
-
-.readiness-warn {
-  background: var(--warn-bg);
-  border-color: var(--warn-border);
-}
-
-.readiness-bad {
-  background: var(--error-bg);
-  border-color: var(--error-border);
+.meta-pill strong {
+  font-weight: 700;
 }
 
 .status-badge {
   display: inline-block;
-  border: 1px solid var(--border-strong);
+  border: 1px solid transparent;
   border-radius: 999px;
-  padding: 2px 8px;
+  padding: 3px 10px;
   font-size: 12px;
   text-transform: lowercase;
+  font-weight: 700;
 }
 
 .status-healthy {
@@ -261,6 +282,83 @@ textarea {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
+}
+
+.primary-action {
+  background: #111827;
+  border-color: #111827;
+  color: #fff;
+  font-weight: 700;
+}
+
+.secondary-action {
+  background: #fff;
+  border-color: var(--border-strong);
+}
+
+.server-card details {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.server-card summary {
+  cursor: pointer;
+  color: #0f172a;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.server-card details[open] summary {
+  margin-bottom: 12px;
+}
+
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.view-toggle-btn {
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  padding: 8px 12px;
+}
+
+.view-toggle-btn.active {
+  background: #111827;
+  color: #fff;
+}
+
+.server-grid.list-view {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.server-grid.list-view .server-card {
+  padding: 12px 14px;
+}
+
+.server-grid.list-view .server-card-header {
+  align-items: center;
+}
+
+.server-grid.list-view .server-card-header h3 {
+  font-size: 16px;
+}
+
+.server-grid.list-view .readiness-row {
+  gap: 4px;
+}
+
+.server-grid.list-view .meta-pill {
+  padding: 3px 8px;
+}
+
+.server-grid.list-view .server-meta {
+  margin: 8px 0;
 }
 
 .config-grid,
