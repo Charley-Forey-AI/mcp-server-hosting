@@ -22,6 +22,47 @@ function authHeaders() {
   };
 }
 
+function extractJsonRpcPayload(text) {
+  const body = String(text || "").trim();
+  if (!body) return null;
+  try {
+    return JSON.parse(body);
+  } catch {
+    const lines = body.split(/\r?\n/).map((line) => line.trim());
+    for (const line of lines) {
+      if (!line.startsWith("data:")) continue;
+      const candidate = line.slice(5).trim();
+      if (!candidate || candidate === "[DONE]") continue;
+      try {
+        return JSON.parse(candidate);
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  }
+}
+
+function getTestHeaders(serverId) {
+  const raw = document.getElementById("testHeaders-" + serverId)?.value || "{}";
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Test headers must be a JSON object");
+    }
+    const out = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      const headerName = String(key || "").trim();
+      const headerValue = String(value ?? "").trim();
+      if (!headerName || !headerValue) continue;
+      out[headerName] = headerValue;
+    }
+    return out;
+  } catch (error) {
+    throw new Error("Invalid test headers JSON: " + String(error.message || error));
+  }
+}
+
 function showToast(message) {
   const el = document.getElementById("toast");
   if (!el) return;
@@ -248,17 +289,18 @@ async function restartServer(serverId) {
   }
 }
 
-async function discoverTools(serverId) {
+async function discoverTools(serverId, testHeaders = null) {
   const output = document.getElementById("tools-" + serverId);
   if (output) output.textContent = "Discovering tools...";
   try {
+    const upstreamHeaders = testHeaders || getTestHeaders(serverId);
     const res = await fetch("/api/servers/" + encodeURIComponent(serverId) + "/discover-tools", {
       method: "POST",
       headers: {
         "content-type": "application/json",
         ...authHeaders(),
       },
-      body: JSON.stringify({ headers: {} }),
+      body: JSON.stringify({ headers: upstreamHeaders }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -268,10 +310,14 @@ async function discoverTools(serverId) {
       return;
     }
     const tools = data?.toolsList?.result?.tools || [];
+    const initializeStatus = data?.initializeStatus || {};
+    const toolsStatus = data?.toolsStatus || {};
     const view = {
       serverId: data.serverId,
       serverInfo: data?.initialize?.result?.serverInfo || null,
       sessionId: data.sessionId || null,
+      initializeStatus,
+      toolsStatus,
       toolsCount: tools.length,
       tools: tools.map((tool) => ({ name: tool.name, description: tool.description || "" })),
       discoveredAt: data.discoveredAt,
@@ -288,7 +334,49 @@ async function discoverTools(serverId) {
 
 async function testConnection(serverId) {
   showToast("Testing connection...");
-  await discoverTools(serverId);
+  const output = document.getElementById("tools-" + serverId);
+  try {
+    const upstreamHeaders = getTestHeaders(serverId);
+    const res = await fetch("/mcp/" + encodeURIComponent(serverId), {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+        ...authHeaders(),
+        ...upstreamHeaders,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "test-initialize",
+        method: "initialize",
+        params: {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: {
+            name: "mcp-hosting-dashboard",
+            version: "1.0.0",
+          },
+        },
+      }),
+    });
+    const responseText = await res.text();
+    const responsePayload = extractJsonRpcPayload(responseText);
+    const proxyValidation = {
+      stage: "proxy_validation",
+      status: res.status,
+      ok: res.ok,
+      payload: responsePayload,
+    };
+    if (!res.ok) {
+      if (output) output.textContent = JSON.stringify(proxyValidation, null, 2);
+      showToast("Validation failed: " + res.status);
+      return;
+    }
+    await discoverTools(serverId, upstreamHeaders);
+  } catch (error) {
+    if (output) output.textContent = JSON.stringify({ error: String(error.message || error) }, null, 2);
+    showToast("Validation failed");
+  }
 }
 
 async function pollImportJob(importJobId) {

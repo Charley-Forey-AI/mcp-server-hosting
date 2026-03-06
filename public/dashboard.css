@@ -129,6 +129,12 @@ button.danger {
   gap: 8px;
 }
 
+.auth-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;

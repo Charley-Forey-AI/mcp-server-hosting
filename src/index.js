@@ -222,6 +222,9 @@ function enforceImportRateLimit(req, res) {
 
 function sanitizeForwardHeaders(reqHeaders, serverConfig) {
   const allow = new Set((serverConfig.forwardHeaders || []).map((h) => h.toLowerCase()));
+  // MCP transport/session headers must always pass through even if not explicitly configured.
+  allow.add("mcp-session-id");
+  allow.add("x-mcp-session-id");
   const out = {};
   for (const [key, value] of Object.entries(reqHeaders || {})) {
     const lowered = key.toLowerCase();
@@ -396,6 +399,9 @@ async function discoverServerTools(server, requestHeaders = {}) {
   });
   const initText = await initResponse.text();
   const initPayload = extractJsonRpcPayload(initText);
+  if (!initResponse.ok && !(initPayload && initPayload.error)) {
+    throw new Error(`initialize failed with status ${initResponse.status}`);
+  }
   const sessionId =
     initResponse.headers.get("mcp-session-id") ||
     initResponse.headers.get("x-mcp-session-id") ||
@@ -428,6 +434,8 @@ async function discoverServerTools(server, requestHeaders = {}) {
     serverId: server.id,
     targetUrl: server.targetUrl,
     sessionId: sessionId || null,
+    initializeStatus: { status: initResponse.status, ok: initResponse.ok },
+    toolsStatus: { status: toolsResponse.status, ok: toolsResponse.ok },
     initialize: initPayload,
     toolsList: toolsPayload,
     discoveredAt: new Date().toISOString(),
@@ -1167,6 +1175,12 @@ app.get("/dashboard", authenticate, requireRole("viewer", "publisher", "admin"),
       const adminActions = isAdmin
         ? `<button type="button" class="danger" onclick="runServerAction('delete', '${escapeHtml(server.id)}')">Delete</button>`
         : "";
+      const discoverHeaderKeys = [...new Set([...(server.requiredHeaders || []), ...(server.forwardHeaders || [])])]
+        .map((header) => String(header || "").trim())
+        .filter(Boolean);
+      const defaultDiscoverHeaders = discoverHeaderKeys.length
+        ? Object.fromEntries(discoverHeaderKeys.map((header) => [header, ""]))
+        : {};
 
       return `<article class="server-card" data-name="${escapeHtml(server.name.toLowerCase())}" data-id="${escapeHtml(
         server.id.toLowerCase(),
@@ -1236,6 +1250,9 @@ app.get("/dashboard", authenticate, requireRole("viewer", "publisher", "admin"),
               </label>
             </div>
           </div>
+          <label>Test/discovery headers JSON (forwarded to MCP backend)
+            <textarea id="testHeaders-${escapeHtml(server.id)}" rows="4">${escapeHtml(JSON.stringify(defaultDiscoverHeaders, null, 2))}</textarea>
+          </label>
           <p class="subtle">Only user-editable env vars are shown here. Runtime keys (host/port/transport) are managed by the platform. Keep <code>${escapeHtml(MASK_TOKEN)}</code> to preserve existing secret values.</p>
           <div class="server-actions">
             <button type="button" onclick="saveServerConfig('${escapeHtml(server.id)}')">Save config</button>
@@ -1258,6 +1275,20 @@ app.get("/dashboard", authenticate, requireRole("viewer", "publisher", "admin"),
     .filter(Boolean)
     .join("");
   const content = `<section class="panel summary-strip">${summaryItems}</section>
+      <section class="panel">
+        <div class="section-title-row">
+          <h2>Dashboard request auth</h2>
+        </div>
+        <p class="subtle">Use these optional values for dashboard actions such as Discover tools and Test connection. Leave blank to use your current session cookie only.</p>
+        <div class="auth-grid">
+          <label>Platform API key
+            <input id="apiKey" placeholder="Optional: X-API-Key value"/>
+          </label>
+          <label>Platform bearer token
+            <input id="bearerToken" placeholder="Optional: Bearer token for platform auth"/>
+          </label>
+        </div>
+      </section>
       <section class="panel">
         <div class="section-title-row">
           <h2>Hosted Servers</h2>

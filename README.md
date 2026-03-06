@@ -157,6 +157,22 @@ See `examples/cursor.mcp.json`:
 }
 ```
 
+## Test and Validate Hosted MCP Auth
+
+Use this sequence to avoid `401 Unauthorized` when validating a hosted MCP:
+
+1. **Platform auth is required first** for `/mcp/:serverId`:
+   - `X-API-Key: <PLATFORM_KEY>` or
+   - `Authorization: Bearer <platform JWT>` or
+   - browser session cookie from `/login`
+2. **Upstream auth is separate** and should be forwarded to the MCP backend if required (for example `Authorization: Bearer <upstream token>` and `x-portfolio-id`).
+3. In `/dashboard`:
+   - Fill **Dashboard request auth** (optional API key/bearer) when you want dashboard actions to send explicit platform credentials.
+   - Set per-server **Test/discovery headers JSON** with upstream headers used by your MCP.
+   - Click **Test connection** to run an `initialize` request through `/mcp/:serverId` and verify end-to-end auth.
+   - Click **Discover tools** to run `initialize` + `tools/list` directly against the target MCP using the same test headers.
+4. For external clients (Cursor, Trimble Agent Studio, etc.), always include platform auth headers in client config. Include upstream headers if the MCP needs them.
+
 ## Deployment (Ubuntu EC2)
 
 ### Option A: Docker Compose
