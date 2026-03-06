@@ -125,6 +125,10 @@ async function migrate() {
 }
 
 function toServer(row) {
+  const blockedRequiredHeaders = new Set(["x-api-key", "x-platform-api-key", "x-portkey-api-key"]);
+  const requiredHeaders = (row.required_headers || []).filter(
+    (header) => !blockedRequiredHeaders.has(String(header || "").trim().toLowerCase()),
+  );
   return {
     id: row.id,
     name: row.name,
@@ -132,7 +136,7 @@ function toServer(row) {
     internalPort: row.internal_port,
     targetUrl: row.target_url,
     healthPath: row.health_path,
-    requiredHeaders: row.required_headers || [],
+    requiredHeaders,
     forwardHeaders: row.forward_headers || [],
     status: row.status,
     lastHealthCheck: row.last_health_check ? new Date(row.last_health_check).toISOString() : null,

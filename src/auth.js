@@ -145,6 +145,11 @@ function getBearerToken(req) {
   return auth.slice("bearer ".length).trim();
 }
 
+function isMcpProxyRequest(req) {
+  const originalUrl = String(req.originalUrl || req.url || "");
+  return originalUrl.startsWith("/mcp/");
+}
+
 async function authenticate(req, res, next) {
   try {
     const apiKey = req.get("x-api-key");
@@ -177,6 +182,16 @@ async function authenticate(req, res, next) {
         sub: browserSession.sub,
         roles: browserSession.roles,
         authType: "session",
+        claims: {},
+      };
+      return next();
+    }
+
+    if (isMcpProxyRequest(req)) {
+      req.auth = {
+        sub: "anonymous-mcp",
+        roles: ["viewer"],
+        authType: "none",
         claims: {},
       };
       return next();

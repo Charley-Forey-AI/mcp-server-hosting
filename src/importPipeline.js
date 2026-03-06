@@ -113,19 +113,17 @@ function deriveServerId(preferredId, repoName) {
   return `${base}-${suffix}`;
 }
 
-function buildCursorSnippet(serverId, requiredHeaders = [], includePlatformAuth = true) {
+function buildCursorSnippet(serverId, requiredHeaders = []) {
+  const blocked = new Set(["x-api-key", "x-platform-api-key", "x-portkey-api-key"]);
   const headers = {};
   for (const header of requiredHeaders) {
     const normalized = String(header || "").trim();
     if (!normalized) continue;
     const lowered = normalized.toLowerCase();
+    if (blocked.has(lowered)) continue;
     if (lowered === "authorization") headers[normalized] = "Bearer <YOUR_TOKEN>";
     else if (lowered === "x-api-key") headers[normalized] = "<API_KEY>";
     else headers[normalized] = `<${normalized}-VALUE>`;
-  }
-  const platformAuthEnabled = Boolean((process.env.PLATFORM_API_KEYS || "").trim());
-  if (includePlatformAuth && platformAuthEnabled && !Object.keys(headers).some((h) => h.toLowerCase() === "x-api-key")) {
-    headers["X-API-Key"] = "<PLATFORM_KEY>";
   }
   return JSON.stringify(
     {
@@ -490,16 +488,9 @@ async function inferAuthMetadata(contextDir, canonicalRepoUrl) {
       /(required|must include|must send|mandatory)/i.test(line) &&
       !/optional|if set|when set|if you set/i.test(line),
   );
-  const requiredApiKey = lines.some(
-    (line) =>
-      /x-api-key/i.test(line) &&
-      /(required|must include|must send|mandatory)/i.test(line) &&
-      !/optional|if set|when set|if you set/i.test(line),
-  );
   if (requiredAuthorization) requiredHeaders.push("Authorization");
   else if (hasBearerMention) optionalHeaders.push("Authorization");
-  if (requiredApiKey) requiredHeaders.push("X-API-Key");
-  else if (hasApiKeyMention) optionalHeaders.push("X-API-Key");
+  if (hasApiKeyMention) optionalHeaders.push("X-API-Key");
   const discoveredHeaderMatches = corpus.match(/\bX-[A-Za-z0-9-]+\b/g) || [];
   const discoveredHeaders = [...new Set(discoveredHeaderMatches.map((h) => h.trim()))];
   const uniqueRequiredHeaders = [...new Set(requiredHeaders)];
@@ -863,7 +854,7 @@ async function runImportJob(job) {
     }
 
     const latestServer = (await getServerById(server.id)) || server;
-    const mcpJsonSnippet = buildCursorSnippet(latestServer.id, latestServer.requiredHeaders || auth.requiredHeaders, true);
+    const mcpJsonSnippet = buildCursorSnippet(latestServer.id, latestServer.requiredHeaders || auth.requiredHeaders);
     const result = {
       serverId: latestServer.id,
       url: `${PUBLIC_BASE_URL}/mcp/${latestServer.id}`,

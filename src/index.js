@@ -118,7 +118,7 @@ function validateServerInput(input) {
     internalPort,
     targetUrl: input.targetUrl ? String(input.targetUrl) : undefined,
     healthPath: String(input.healthPath || "/health"),
-    requiredHeaders: Array.isArray(input.requiredHeaders) ? input.requiredHeaders : ["Authorization"],
+    requiredHeaders: Array.isArray(input.requiredHeaders) ? input.requiredHeaders : [],
     forwardHeaders: Array.isArray(input.forwardHeaders) ? input.forwardHeaders : ["authorization"],
     command: input.command ? String(input.command) : null,
     commandArgs: Array.isArray(input.commandArgs) ? input.commandArgs : [],
@@ -235,6 +235,14 @@ function sanitizeForwardHeaders(reqHeaders, serverConfig) {
   return out;
 }
 
+function sanitizeRequiredHeaders(requiredHeaders) {
+  const blocked = new Set(["x-api-key", "x-platform-api-key", "x-portkey-api-key"]);
+  return (requiredHeaders || []).filter((header) => {
+    const lowered = String(header || "").trim().toLowerCase();
+    return lowered && !blocked.has(lowered);
+  });
+}
+
 function getClientIp(req) {
   const forwarded = String(req.get("x-forwarded-for") || "").trim();
   if (forwarded) {
@@ -267,8 +275,8 @@ async function enqueueProvisionAction(req, action, serverId, payload = {}) {
   return job;
 }
 
-function buildCursorSnippet(server, includePlatformAuth = false) {
-  const requiredHeaders = Array.isArray(server.requiredHeaders) ? server.requiredHeaders : [];
+function buildCursorSnippet(server) {
+  const requiredHeaders = sanitizeRequiredHeaders(Array.isArray(server.requiredHeaders) ? server.requiredHeaders : []);
   const forwardHeaders = Array.isArray(server.forwardHeaders) ? server.forwardHeaders : [];
   const headerSource = requiredHeaders.length > 0 ? requiredHeaders : forwardHeaders;
   const allHeaders = [];
@@ -287,10 +295,6 @@ function buildCursorSnippet(server, includePlatformAuth = false) {
       return [headerName, `<${headerName}-VALUE>`];
     }),
   );
-  const platformAuthEnabled = Boolean((process.env.PLATFORM_API_KEYS || "").trim()) || jwtEnabled();
-  if (includePlatformAuth && platformAuthEnabled && !Object.keys(headers).some((headerName) => String(headerName).toLowerCase() === "x-api-key")) {
-    headers["X-API-Key"] = "<PLATFORM_KEY>";
-  }
   return JSON.stringify(
     {
       mcpServers: {
@@ -525,7 +529,7 @@ function renderLoginPage({ nextPath = "/dashboard", error = "", info = "" } = {}
           </label>
           <button type="submit">Sign in</button>
         </form>
-        <p class="subtle">If you prefer API auth, you can still use <code>X-API-Key</code> or bearer token headers.</p>`
+        <p class="subtle">If you prefer API auth, you can still use a bearer token header.</p>`
             : `<p>Browser login is not enabled. Configure <code>WEB_ADMIN_EMAIL</code> and <code>WEB_ADMIN_PASSWORD</code>, then restart the service.</p>`
         }
       </main>
@@ -653,14 +657,14 @@ app.get("/mcp/:serverId/meta.json", async (req, res) => {
     description: server.description,
     url: `${PUBLIC_BASE_URL}/mcp/${server.id}`,
     status: server.status,
-    requiredHeaders: server.requiredHeaders,
+    requiredHeaders: sanitizeRequiredHeaders(server.requiredHeaders),
     forwardHeaders: server.forwardHeaders,
     authType: server.authType,
     authInstructions: server.authInstructions,
     docsUrl: server.docsUrl,
     signupUrl: server.signupUrl,
     healthMessage: server.healthMessage,
-    mcpJsonSnippet: JSON.parse(buildCursorSnippet(server, true)),
+    mcpJsonSnippet: JSON.parse(buildCursorSnippet(server)),
   });
 });
 
@@ -668,7 +672,7 @@ app.get("/registry", async (_req, res) => {
   const servers = await listServers();
   const rows = servers
     .map((s) => {
-      const snippet = buildCursorSnippet(s, true);
+      const snippet = buildCursorSnippet(s);
       const docsLink = s.docsUrl ? `<a href="${escapeHtml(s.docsUrl)}" target="_blank" rel="noreferrer">Docs</a>` : "-";
       const signupLink = s.signupUrl
         ? `<a href="${escapeHtml(s.signupUrl)}" target="_blank" rel="noreferrer">Get credentials</a>`
@@ -677,7 +681,7 @@ app.get("/registry", async (_req, res) => {
         <td>${escapeHtml(s.name)}</td>
         <td><code>${escapeHtml(`/mcp/${s.id}`)}</code></td>
         <td>${escapeHtml(s.status)}</td>
-        <td>${escapeHtml(s.authType || "custom")}<br/><code>${escapeHtml((s.requiredHeaders || []).join(", "))}</code></td>
+        <td>${escapeHtml(s.authType || "custom")}<br/><code>${escapeHtml(sanitizeRequiredHeaders(s.requiredHeaders).join(", "))}</code></td>
         <td>${escapeHtml(s.authInstructions || "No specific instructions provided.")}</td>
         <td>${docsLink}</td>
         <td>${signupLink}</td>
@@ -1142,7 +1146,7 @@ app.get("/dashboard", authenticate, requireRole("viewer", "publisher", "admin"),
     getContainerRunningMap(servers.map((server) => server.id)),
   ]);
   const lastRequestByServerId = new Map(lastRequestRows.map((row) => [row.serverId, row.lastRequestAt]));
-  const snippets = Object.fromEntries(servers.map((server) => [server.id, buildCursorSnippet(server, true)]));
+  const snippets = Object.fromEntries(servers.map((server) => [server.id, buildCursorSnippet(server)]));
   const serverEnvJson = Object.fromEntries(
     servers.map((server) => [server.id, JSON.stringify(maskEnvForDisplay(editableEnvForDisplay(server.commandEnv || {})), null, 2)]),
   );
@@ -1152,7 +1156,7 @@ app.get("/dashboard", authenticate, requireRole("viewer", "publisher", "admin"),
   const serverCards = servers
     .map((server) => {
       const status = String(server.status || "unknown").toLowerCase();
-      const required = (server.requiredHeaders || []).join(", ") || "-";
+      const required = sanitizeRequiredHeaders(server.requiredHeaders).join(", ") || "-";
       const forwarded = (server.forwardHeaders || []).join(", ") || "-";
       const usage = usageSummary?.servers?.find((item) => item.serverId === server.id) || { minuteCount: 0, dayCount: 0 };
       const containerState = containerStateByName.get(containerNameForServerId(server.id)) || {
