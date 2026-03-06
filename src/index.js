@@ -277,10 +277,8 @@ async function enqueueProvisionAction(req, action, serverId, payload = {}) {
 
 function buildCursorSnippet(server) {
   const requiredHeaders = sanitizeRequiredHeaders(Array.isArray(server.requiredHeaders) ? server.requiredHeaders : []);
-  const forwardHeaders = Array.isArray(server.forwardHeaders) ? server.forwardHeaders : [];
-  const headerSource = requiredHeaders.length > 0 ? requiredHeaders : forwardHeaders;
   const allHeaders = [];
-  for (const headerName of headerSource) {
+  for (const headerName of requiredHeaders) {
     if (!headerName) continue;
     const normalized = String(headerName).trim();
     if (!normalized) continue;
@@ -295,13 +293,16 @@ function buildCursorSnippet(server) {
       return [headerName, `<${headerName}-VALUE>`];
     }),
   );
+  const serverConfig = {
+    url: `${PUBLIC_BASE_URL}/mcp/${server.id}`,
+  };
+  if (Object.keys(headers).length > 0) {
+    serverConfig.headers = headers;
+  }
   return JSON.stringify(
     {
       mcpServers: {
-        [server.id]: {
-          url: `${PUBLIC_BASE_URL}/mcp/${server.id}`,
-          headers,
-        },
+        [server.id]: serverConfig,
       },
     },
     null,
@@ -1147,6 +1148,7 @@ app.get("/dashboard", authenticate, requireRole("viewer", "publisher", "admin"),
   ]);
   const lastRequestByServerId = new Map(lastRequestRows.map((row) => [row.serverId, row.lastRequestAt]));
   const snippets = Object.fromEntries(servers.map((server) => [server.id, buildCursorSnippet(server)]));
+  const serverUrls = Object.fromEntries(servers.map((server) => [server.id, `${PUBLIC_BASE_URL}/mcp/${server.id}`]));
   const serverEnvJson = Object.fromEntries(
     servers.map((server) => [server.id, JSON.stringify(maskEnvForDisplay(editableEnvForDisplay(server.commandEnv || {})), null, 2)]),
   );
@@ -1174,8 +1176,8 @@ app.get("/dashboard", authenticate, requireRole("viewer", "publisher", "admin"),
         : `not successful yet${lastToolsCheck ? ` • ${lastToolsCheck}` : ""}`;
       const primaryActionButton =
         status === "healthy" || status === "unknown"
-          ? `<button type="button" onclick="runServerAction('stop', '${escapeHtml(server.id)}')">Stop</button>`
-          : `<button type="button" onclick="runServerAction('start', '${escapeHtml(server.id)}')">Start</button>`;
+          ? `<button type="button" title="Temporarily stop this hosted container" onclick="runServerAction('stop', '${escapeHtml(server.id)}')">Stop server</button>`
+          : `<button type="button" title="Start this hosted container" onclick="runServerAction('start', '${escapeHtml(server.id)}')">Start server</button>`;
       const adminActions = isAdmin
         ? `<button type="button" class="danger" onclick="runServerAction('delete', '${escapeHtml(server.id)}')">Delete</button>`
         : "";
@@ -1211,7 +1213,8 @@ app.get("/dashboard", authenticate, requireRole("viewer", "publisher", "admin"),
           canManage
             ? `<div class="server-actions">
           ${primaryActionButton.replace("<button", '<button class="primary-action"')}
-          <button type="button" class="secondary-action" onclick="copySnippet('${escapeHtml(server.id)}')">Copy mcp.json</button>
+          <button type="button" class="secondary-action" onclick="copyServerUrl('${escapeHtml(server.id)}')">Copy URL</button>
+          <button type="button" class="secondary-action" onclick="copySnippet('${escapeHtml(server.id)}')">Copy mcp.json template</button>
         </div>`
             : ""
         }
@@ -1219,9 +1222,11 @@ app.get("/dashboard", authenticate, requireRole("viewer", "publisher", "admin"),
           <summary>Details</summary>
           <div class="meta-row"><strong>Last request</strong>: ${escapeHtml(lastRequestByServerId.get(server.id) || "none")}</div>
           <div class="meta-row" id="tools-meta-${escapeHtml(server.id)}">Tool discovery: ${escapeHtml(toolsMetaLabel)}</div>
+          <div class="meta-row">Connection URL: <code>${escapeHtml(serverUrls[server.id])}</code></div>
           <div class="meta-row">Forwarded headers: <code>${escapeHtml(forwarded)}</code></div>
           ${required !== "-" ? `<div class="meta-row">Required headers: <code>${escapeHtml(required)}</code></div>` : ""}
           <p>${escapeHtml(server.authInstructions || "No specific auth instructions provided.")}</p>
+          <p class="subtle">Use <strong>Copy URL</strong> for quick setup. The mcp.json template includes required headers only. Optional forwarded headers are listed above and can be added if your MCP server needs them.</p>
           <pre id="snippet-${escapeHtml(server.id)}">${escapeHtml(snippets[server.id])}</pre>
           ${
             canManage
@@ -1329,7 +1334,7 @@ app.get("/dashboard", authenticate, requireRole("viewer", "publisher", "admin"),
       canManage,
       req,
       content,
-      scriptData: { snippets, maskToken: MASK_TOKEN },
+      scriptData: { snippets, serverUrls, maskToken: MASK_TOKEN },
       includeScript: true,
     }),
   );

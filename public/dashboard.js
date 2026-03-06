@@ -1,4 +1,5 @@
 const SERVER_SNIPPETS = window.DASHBOARD_DATA?.snippets || {};
+const SERVER_URLS = window.DASHBOARD_DATA?.serverUrls || {};
 const MASK_TOKEN = window.DASHBOARD_DATA?.maskToken || "__MCP_MASKED__";
 const SYSTEM_MANAGED_ENV_KEYS = new Set([
   "HOST",
@@ -185,10 +186,25 @@ async function copySnippet(serverId) {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(snippet);
-      showToast("mcp.json snippet copied");
+      showToast("mcp.json template copied");
       return;
     }
-    window.prompt("Copy mcp.json snippet:", snippet);
+    window.prompt("Copy mcp.json template:", snippet);
+  } catch (error) {
+    showToast("Copy failed: " + String(error.message || error));
+  }
+}
+
+async function copyServerUrl(serverId) {
+  const url = SERVER_URLS[serverId];
+  if (!url) return;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url);
+      showToast("Server URL copied");
+      return;
+    }
+    window.prompt("Copy MCP server URL:", url);
   } catch (error) {
     showToast("Copy failed: " + String(error.message || error));
   }
@@ -444,6 +460,7 @@ async function importRepo() {
 
 window.applyServerFilters = applyServerFilters;
 window.copySnippet = copySnippet;
+window.copyServerUrl = copyServerUrl;
 window.runServerAction = runServerAction;
 window.saveServerConfig = saveServerConfig;
 window.restartServer = restartServer;
